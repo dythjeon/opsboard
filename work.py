@@ -275,12 +275,62 @@ def gct():
     return rows
 
 
-# (이름, 함수). E1CT 는 본선작업현황 화면이 있지만 작업 중인 배가 없을 때는 표 자체가 없어 형식을 아직 모른다.
+# ---------------------------------------------------------------- E1CT (인천)
+def _e1ct_key(voyage):
+    """'PGLO- 027-2026' 과 'PGLO- 027 2634E/2635W' 를 같은 열쇠(PGLO027)로."""
+    m = re.match(r"\s*([A-Z0-9]+)\s*-\s*0*(\d+)", (voyage or "").upper())
+    return f"{m.group(1)}{int(m.group(2)):03d}" if m else ""
+
+
+def e1ct():
+    """/info/terminal/vesselWork: 모선마다 [선석·모선항차·선사·ETB·작업시작·ATB·ETD] 표와
+    [작업량/완료량/잔여량 x 양하·적하·합계] 표가 한 묶음이다. 작업 중인 배가 없으면 표 자체가 없다.
+    선명이 없어 선석배정(T) 화면에서 모선항차로 찾아 붙인다."""
+    resp = requests.get("https://www.e1ct.co.kr/info/terminal/vesselWork", headers=HEADERS, timeout=20,
+                        verify=scraper._e1ct_ca_bundle())
+    resp.raise_for_status()
+    resp.encoding = resp.apparent_encoding or "utf-8"
+    blocks = re.split(r"<th>\s*선석\s*</th>", resp.text)[1:]
+    if not blocks:
+        return []
+    sched = {}
+    try:
+        for r in scraper.fetch_e1ct(only_tracked=False):
+            sched.setdefault(_e1ct_key(r["voyage"]), r)
+    except Exception:
+        pass
+
+    rows = []
+    for b in blocks:
+        def cell(label, text=b):
+            m = re.search(r"<th>\s*%s\s*</th>\s*(?:<!--.*?-->\s*)*<td[^>]*>([^<]*)" % label, text, re.S)
+            return m.group(1).strip() if m else ""
+
+        def pair(label):
+            m = re.search(r"<th>\s*%s\s*</th>\s*<td[^>]*>\s*([\d,]+)\s*</td>\s*<td[^>]*>\s*([\d,]+)" % label, b)
+            return (_int(m.group(1)), _int(m.group(2))) if m else (None, None)
+
+        voyage = cell("모선항차", "<th>선석</th>" + b)
+        berth = re.match(r"\s*<td[^>]*>([^<]*)", b)
+        berth = berth.group(1).strip().lstrip("#") if berth else ""
+        (d_total, l_total), (d_done, l_done) = pair("작업량"), pair("완료량")
+        if not voyage or None in (d_total, l_total, d_done, l_done):
+            continue
+        s = sched.get(_e1ct_key(voyage), {})
+        rows.append(_row("E1CT", berth, s.get("voyage") or voyage, s.get("ship_name") or voyage, cell("선사"),
+                         _parse_dt(cell("ATB") or cell("ETB")) or s.get("eta"), _parse_dt(cell("ETD")) or s.get("etd"),
+                         d_done, d_total, l_done, l_total,
+                         status="작업중" if cell("작업시작") else "접안완료"))
+    return rows
+
+
+# (이름, 함수)
 WORK_SOURCES = [
     ("본선작업현황(신선대/감만)", bptc),
     ("본선작업현황(허치슨)", hpnt),
     ("본선작업현황(한진신항)", hjit),
     ("본선작업현황(선광신항)", snct),
+    ("본선작업현황(E1CT)", e1ct),
     ("본선작업현황(광양서부)", gwct),
     ("본선작업현황(광양국제)", kit),
     ("본선작업현황(PCTC)", pctc),

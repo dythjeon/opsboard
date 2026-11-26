@@ -707,8 +707,10 @@ def _e1ct_ca_bundle():
         return certifi.where()      # 임시파일을 못 쓰면 기본 검증으로 되돌린다
 
 
-def fetch_e1ct():
+def fetch_e1ct(only_tracked=True):
     """E1CT(인천 E1컨테이너터미널) 선석배정현황(T)을 가져온다.
+
+    only_tracked=False 면 선명으로 거르지 않는다(본선작업현황에서 모선항차 -> 선명을 찾을 때 쓴다).
 
     날짜를 지정하지 않으면 오늘부터 7일치를 그대로 보여주는 페이지라
     파라미터 없이 그대로 가져온다.
@@ -741,7 +743,7 @@ def fetch_e1ct():
 
         line = cells[8][0] if cells[8] else ""
         ship_name = cells[4][0] if cells[4] else ""
-        if not any(n in _norm_name(ship_name) for n in E1CT_SHIP_NAMES):     # 항로 코드가 없는 화면이라 선명으로
+        if only_tracked and not any(n in _norm_name(ship_name) for n in E1CT_SHIP_NAMES):     # 항로 코드가 없는 화면이라 선명으로
             continue
 
         rows.append({
